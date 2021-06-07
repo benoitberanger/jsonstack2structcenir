@@ -1,8 +1,20 @@
-#include "mex.hpp"
-#include "mexAdapter.hpp"
-#include <fstream>
+#include "mex.hpp"         // MATLAB mandatory
+#include "mexAdapter.hpp"  // MATLAB mandatory
+#include <fstream>         // file stream => read file on disk
+#include <regex>           // regex
 
 #define FILENAME "jsonstack2structcenir"
+
+std::vector<std::string> field_list = {
+    "RepetitionTime",
+    "EchoTime",
+};
+
+// decimal number in fixed format (99 -99. +99.999 -.999 -3 etc.)
+    // prefixed by beginning of string or white space
+    // with an optional + or -
+    // suffixed by end of string or white space
+    std::regex num_re("(?:^|\\s)[+-]?(?:\\d+\\.?\\d*|\\d*\\.?\\d+)(?:\\s|$)");
 
 using matlab::mex::ArgumentList;
 using matlab::data::ArrayType;
@@ -22,21 +34,24 @@ class MexFunction : public matlab::mex::Function {
     // Get array factory
     matlab::data::ArrayFactory factory;
     
+    // Create an output stream
+    std::ostringstream stream;
+    
 public:
     
     /*********************************************************************/
     // simple wrappers
     void fprintf_matlab(const std::string inputString){
-        std::ostringstream stringStream;
-        stringStream << "[" << FILENAME << "]: " << inputString;
+        stream << "[" << FILENAME << "]: " << inputString;
         matlabPtr->feval(u"fprintf", 0,
-                std::vector<Array>({ factory.createScalar( stringStream.str() ) }));
+                std::vector<Array>({ factory.createScalar( stream.str() ) }));
+                stream.str("");
     }
     void error_matlab(const std::string inputString){
-        std::ostringstream stringStream;
-        stringStream << "[" << FILENAME << "]: " << inputString;
+        stream << "[" << FILENAME << "]: " << inputString;
         matlabPtr->feval(u"error", 0,
-                std::vector<Array>({ factory.createScalar( stringStream.str() ) }));
+                std::vector<Array>({ factory.createScalar( stream.str() ) }));
+                stream.str("");
     }
     
     /*********************************************************************/
@@ -80,20 +95,59 @@ public:
     }
     
     /*********************************************************************/
+    std::string extract_line( std::regex re ){
+        
+        std::smatch match; // this will receive the matched elements
+        
+        if(std::regex_search( content, match, re )){ // search
+        
+            // get position of the matched postion & only keep the file from this index
+            const int start = match.position();
+            std::string tmp_string = content.substr(start,content.length());
+            
+            if(std::regex_search( tmp_string, match, std::regex (",") )){ // search for the comma which is an endline
+                const int stop = match.position();
+                return content.substr(start,stop); // only return the line, ready for extraction
+            }
+            
+        }
+        return std::string (""); // this an "else"
+    }
+    
+    /*********************************************************************/
+    double extract_num( std::string str, std::regex re ){
+        
+        std::smatch match;
+        
+        if(std::regex_search( str, match, re )){
+            return std::stod( match[0] ) ;
+        }
+        return NAN;
+        
+    }
+    
+    /*===================================================================*/
     // this is the main()
     void operator()(ArgumentList outputs, ArgumentList inputs) {
         
         // Validate arguments
         checkArguments(outputs, inputs);
         
-        const matlab::data::CharArray char_input = std::move(inputs[0]);
-        readFile(char_input.toAscii());
+        // Get filename
+        const matlab::data::CharArray filename = std::move(inputs[0]);
+        readFile(filename.toAscii());
         
-        // fprintf_matlab(content);
+        // Initialize output
+        matlab::data::StructArray S = factory.createStructArray({1}, field_list);
         
-        outputs[0] = factory.createCharArray(content);
+        // Parse file
+        
+        S[0]["RepetitionTime"] = factory.createScalar( extract_num( extract_line( std::regex ("RepetitionTime") ) , num_re ) );
+        
+        outputs[0] = std::move(S);
         
     }
     
 };
+
 

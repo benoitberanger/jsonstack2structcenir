@@ -11,10 +11,10 @@ std::vector<std::string> field_list = {
 };
 
 // decimal number in fixed format (99 -99. +99.999 -.999 -3 etc.)
-    // prefixed by beginning of string or white space
-    // with an optional + or -
-    // suffixed by end of string or white space
-    std::regex num_re("(?:^|\\s)[+-]?(?:\\d+\\.?\\d*|\\d*\\.?\\d+)(?:\\s|$)");
+// prefixed by beginning of string or white space
+// with an optional + or -
+// suffixed by end of string or white space
+std::regex num_re("(?:^|\\s)[+-]?(?:\\d+\\.?\\d*|\\d*\\.?\\d+)(?:\\s|$)*");
 
 using matlab::mex::ArgumentList;
 using matlab::data::ArrayType;
@@ -100,7 +100,7 @@ public:
         std::smatch match; // this will receive the matched elements
         
         if(std::regex_search( content, match, re )){ // search
-        
+            
             // get position of the matched postion & only keep the file from this index
             const int start = match.position();
             std::string tmp_string = content.substr(start,content.length());
@@ -115,14 +115,35 @@ public:
     }
     
     /*********************************************************************/
+    std::string extract_multiline( std::regex re ){
+        
+        std::smatch match; // this will receive the matched elements
+        
+        if(std::regex_search( content, match, re )){ // search
+            
+            // get position of the matched postion & only keep the file from this index
+            const int start = match.position();
+            std::string tmp_string = content.substr(start,content.length());
+            
+            if(std::regex_search( tmp_string, match, std::regex ("]") )){ // search for the comma which is an endline
+                const int stop = match.position();
+                return content.substr(start,stop); // only return the line, ready for extraction
+            }
+            
+        }
+        return std::string (""); // this an "else"
+    }
+    
+    /*********************************************************************/
     double extract_num( std::string str, std::regex re ){
         
         std::smatch match;
         
         if(std::regex_search( str, match, re )){
+            fprintf_matlab( std::to_string(match.size()) ); 
             return std::stod( match[0] ) ;
         }
-        return NAN;
+        return NAN; // this an "else"
         
     }
     
@@ -142,8 +163,10 @@ public:
         
         // Parse file
         
-        S[0]["RepetitionTime"] = factory.createScalar( extract_num( extract_line( std::regex ("RepetitionTime") ) , num_re ) );
+        S[0]["RepetitionTime"] = factory.createScalar( extract_num( extract_line     ( std::regex ("RepetitionTime") ) , num_re ) );
+        S[0]["EchoTime"      ] = factory.createScalar( extract_num( extract_multiline( std::regex ("EchoTime"      ) ) , num_re ) );
         
+        // Finalize the output
         outputs[0] = std::move(S);
         
     }
